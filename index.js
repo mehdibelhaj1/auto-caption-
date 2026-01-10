@@ -41,41 +41,42 @@ const CONFIG = {
   providers: {
     gladia: {
       baseUrl: 'https://api.gladia.io/v2',
+      sttModel: 'gladia-default',
       envKey: 'GLADIA_API_KEY'
     },
     assemblyai: {
       baseUrl: 'https://api.assemblyai.com/v2',
+      sttModel: 'assemblyai-default',
       envKey: 'ASSEMBLYAI_API_KEY',
       languageCode: 'ar'
     },
     openrouter: {
       baseUrl: 'https://openrouter.ai/api/v1',
-      whisperModel: null,
+      sttModel: 'google/gemini-2.0-flash-exp:free',
       chatModel: 'google/gemini-2.0-flash-exp:free',
-      transcriptionModel: 'google/gemini-2.0-flash-exp:free',
       envKey: 'OPENROUTER_API_KEY'
     },
     gemini: {
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-      transcriptionModel: 'gemini-1.5-flash',
+      sttModel: 'gemini-1.5-flash',
       chatModel: 'gemini-1.5-flash',
       envKey: 'GEMINI_API_KEY'
     },
     groq: {
       baseUrl: 'https://api.groq.com/openai/v1',
-      whisperModel: 'whisper-large-v3',
+      sttModel: 'whisper-large-v3',
       chatModel: 'llama-3.3-70b-versatile',
       envKey: 'GROQ_API_KEY'
     },
     openai: {
       baseUrl: 'https://api.openai.com/v1',
-      whisperModel: 'whisper-1',
+      sttModel: 'whisper-1',
       chatModel: 'gpt-4o-mini',
       envKey: 'OPENAI_API_KEY'
     },
     deepseek: {
       baseUrl: 'https://api.deepseek.com/v1',
-      whisperModel: null,
+      sttModel: null,
       chatModel: 'deepseek-chat',
       envKey: 'DEEPSEEK_API_KEY'
     }
@@ -197,6 +198,18 @@ const PROMPTS = {
   diarization: `حلل النص وميّز المتكلمين. حط [Speaker A] أو [Speaker B] قبل كل جزء. رجع النص مع labels:`
 };
 
+const DARIJA_FORBIDDEN_WORDS = [
+  'سوف', 'يجب', 'لذلك', 'هذا', 'هذه', 'الذي', 'التي', 'إن', 'قد', 'لن', 'لم',
+  'ليس', 'حيث', 'بينما', 'كذلك', 'وبالتالي', 'من أجل', 'على الرغم', 'بالتالي',
+  'بالرغم', 'لعل', 'لكن', 'ولكن', 'إذ', 'إذن', 'عندما', 'إلى', 'إلا أن'
+];
+
+const DARIJA_MARKERS = [
+  'دابا', 'غادي', 'علاش', 'كيفاش', 'شنو', 'شكون', 'فين', 'واش', 'بزاف', 'مزيان',
+  'ماشي', 'حيت', 'راه', 'واخا', 'يالاه', 'هادشي', 'ديال', 'ديالي', 'ديالك',
+  'آش', 'إوا', 'بصح', 'هاكا', 'كن', 'كت', 'غادي', 'خاصني', 'بغيت'
+];
+
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
@@ -246,6 +259,15 @@ class Logger {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function normalizeBoolean(value, defaultValue = false) {
+  if (typeof value === 'boolean') return value;
+  if (value === undefined || value === null) return defaultValue;
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+  if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
+  return defaultValue;
 }
 
 async function withRetry(fn, maxRetries = 3, delayMs = 2000, logger) {
@@ -460,14 +482,16 @@ async function splitAudio(audioPath, chunkMinutes, outputDir, logger) {
 // ============================================================================
 
 class APIClient {
-  constructor(provider, apiKey, logger) {
+  constructor(provider, apiKey, logger, overrides = {}) {
     this.provider = provider;
     this.apiKey = apiKey;
     this.logger = logger;
     this.config = CONFIG.providers[provider];
+    this.chatModel = overrides.chatModel || this.config.chatModel;
+    this.sttModel = overrides.sttModel || this.config.sttModel || this.config.whisperModel || this.config.transcriptionModel;
     
     if (!this.config) {
-      throw new Error(`Unknown provider: ${provider}. Use: gemini, groq, openai, or deepseek`);
+      throw new Error(`Unknown provider: ${provider}. Use: gladia, assemblyai, groq, openrouter, gemini, openai, or deepseek`);
     }
   }
 
@@ -557,7 +581,7 @@ class APIClient {
       }
       
       if (this.provider === 'gemini') {
-        const response = await this.fetchGemini(`/models/${this.config.chatModel}`, {
+        const response = await this.fetchGemini(`/models/${this.chatModel}`, {
           method: 'GET'
         });
         return true;
@@ -590,7 +614,7 @@ class APIClient {
       return await this.transcribeWithGemini(audioPath);
     }
     
-    if (!this.config.whisperModel) {
+    if (!this.sttModel) {
       throw new Error(`${this.provider} doesn't support transcription. Use assemblyai, groq or openai.`);
     }
 
@@ -599,16 +623,15 @@ class APIClient {
     
     const formData = new FormData();
     formData.append('file', audioBlob, 'audio.wav');
-    formData.append('model', this.config.whisperModel);
+    formData.append('model', this.sttModel);
     formData.append('language', 'ar');
     
     const darijaPrompt = `هاد الفيديو بالدارجة المغربية. كلمات شائعة: واش، كيفاش، علاش، فين، شكون، شنو، هادشي، ديالي، ديالك، مزيان، بزاف، دابا، غادي، كنت، كان، عندي، عندك، بغيت، خاصني، معايا، معاك، والو، يالاه، زعما، بصح، هاكا، واخا، إوا، أش، راه، كاين، ماشي، بلا، غير، حتى، كيدير، كتقول، كنقول، سير، جي، شوف`;
     formData.append('prompt', darijaPrompt);
     
-    if (this.provider === 'groq') {
-      formData.append('response_format', 'verbose_json');
-    } else {
-      formData.append('response_format', format === 'srt' ? 'srt' : 'vtt');
+    const responseFormat = this.getTranscriptionResponseFormat(format);
+    if (responseFormat) {
+      formData.append('response_format', responseFormat);
     }
 
     const response = await this.fetch('/audio/transcriptions', {
@@ -616,9 +639,36 @@ class APIClient {
       body: formData
     });
 
+    return await this.handleTranscriptionResponse(response, responseFormat, audioPath);
+  }
+
+  getTranscriptionResponseFormat(format) {
     if (this.provider === 'groq') {
+      return 'verbose_json';
+    }
+    if (this.provider === 'openai') {
+      if (this.sttModel === 'whisper-1') {
+        return format === 'vtt' ? 'vtt' : 'srt';
+      }
+      return 'json';
+    }
+    return null;
+  }
+
+  async handleTranscriptionResponse(response, responseFormat, audioPath) {
+    if (responseFormat === 'verbose_json') {
       const json = await response.json();
       return this.verboseJsonToSRT(json);
+    }
+
+    if (responseFormat === 'json') {
+      const json = await response.json();
+      if (json.segments && json.segments.length) {
+        return this.verboseJsonToSRT(json);
+      }
+      const duration = await this.getAudioDuration(audioPath);
+      const text = json.text || '';
+      return `1\n00:00:00,000 --> ${this.secondsToSRTTime(duration)}\n${text.trim()}\n`;
     }
 
     return await response.text();
@@ -898,7 +948,7 @@ class APIClient {
             'X-Title': 'Darija Captions'
           },
           body: JSON.stringify({
-            model: this.config.transcriptionModel,
+            model: this.sttModel,
             messages: [{
               role: 'user',
               content: [
@@ -996,7 +1046,7 @@ class APIClient {
     let lastError;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const response = await this.fetchGemini(`/models/${this.config.transcriptionModel}:generateContent`, {
+        const response = await this.fetchGemini(`/models/${this.sttModel}:generateContent`, {
           method: 'POST',
           body: JSON.stringify({
             contents: [{
@@ -1132,6 +1182,29 @@ class APIClient {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
   }
 
+  async listModels() {
+    if (this.provider === 'gladia' || this.provider === 'assemblyai') {
+      return {
+        models: [],
+        source: 'not_supported'
+      };
+    }
+
+    const response = this.provider === 'gemini'
+      ? await this.fetchGemini('/models', { method: 'GET' })
+      : await this.fetch('/models', { method: 'GET' });
+
+    const data = await response.json();
+
+    if (this.provider === 'gemini') {
+      const models = (data.models || []).map(model => model.name).sort();
+      return { models, source: 'api' };
+    }
+
+    const models = (data.data || []).map(model => model.id).sort();
+    return { models, source: 'api' };
+  }
+
   async chat(messages, options = {}) {
     // Handle Gemini chat differently
     if (this.provider === 'gemini') {
@@ -1144,7 +1217,7 @@ class APIClient {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: options.model || this.config.chatModel,
+        model: options.model || this.chatModel,
         messages,
         temperature: options.temperature || 0.7,
         ...(options.response_format && { response_format: options.response_format })
@@ -1183,7 +1256,7 @@ class APIClient {
     let lastError;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const response = await this.fetchGemini(`/models/${this.config.chatModel}:generateContent`, {
+        const response = await this.fetchGemini(`/models/${this.chatModel}:generateContent`, {
           method: 'POST',
           body: JSON.stringify({
             contents: filteredContents,
@@ -1410,6 +1483,44 @@ function srtToText(srt) {
   return blocks.map(b => b.text.replace(/\n/g, ' ')).join(' ');
 }
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function countListHits(text, list) {
+  let hits = 0;
+  for (const term of list) {
+    const pattern = new RegExp(`(^|[\\s\\n\\r\\t\\u200f\\u200e\\u061f،؛.!؟])${escapeRegex(term)}(?=$|[\\s\\n\\r\\t\\u200f\\u200e\\u061f،؛.!؟])`, 'g');
+    const match = text.match(pattern);
+    if (match) hits += match.length;
+  }
+  return hits;
+}
+
+function sanitizeDarijaText(text) {
+  if (!text) return '';
+  let cleaned = text.replace(/[A-Za-z]/g, '');
+  cleaned = cleaned.replace(/[^\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF0-9\s.,!؟،؛…\-–()"'«»]/g, ' ');
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  return cleaned;
+}
+
+function applyForbiddenWordFilter(text) {
+  let cleaned = text;
+  for (const term of DARIJA_FORBIDDEN_WORDS) {
+    const pattern = new RegExp(`(^|[\\s\\n\\r\\t\\u200f\\u200e\\u061f،؛.!؟])${escapeRegex(term)}(?=$|[\\s\\n\\r\\t\\u200f\\u200e\\u061f،؛.!؟])`, 'g');
+    cleaned = cleaned.replace(pattern, ' ');
+  }
+  return cleaned.replace(/\s+/g, ' ').trim();
+}
+
+function darijaQualityScore(text) {
+  const forbiddenHits = countListHits(text, DARIJA_FORBIDDEN_WORDS);
+  const markerHits = countListHits(text, DARIJA_MARKERS);
+  const score = Math.max(0, 100 - forbiddenHits * 18 + markerHits * 6);
+  return { score, forbiddenHits, markerHits };
+}
+
 // Basic rule-based Darija conversion (fallback when no LLM available)
 function basicDarijaConversion(text) {
   const replacements = [
@@ -1542,7 +1653,40 @@ function basicDarijaConversion(text) {
   return result.trim();
 }
 
-async function cleanTranscript(client, text, logger, safeMode = false) {
+async function enforceDarijaStrictText(client, text, logger, maxRetries = 2) {
+  let enforced = text;
+  let attempt = 0;
+  while (attempt <= maxRetries) {
+    enforced = await withRetry(async () => {
+      return await client.chat([
+        {
+          role: 'system',
+          content: `أنت مدقق دارجة صارم. ممنوع الفصحى وممنوع الكلمات الفرنسية/الإنجليزية إلا أسماء علم. رجع النص بالدارجة فقط.
+قواعد صارمة:
+- غير العربية + أرقام 0-9 فقط
+- حيّد أي فصحى (سوف، يجب، لذلك، هذا، هذه، الذي، التي، إن، قد، لن، لم، ليس، حيث، بينما، كذلك، وبالتالي، من أجل، على الرغم)
+- رجع غير النص`
+        },
+        {
+          role: 'user',
+          content: `صحّح هاد النص للدارجة 100% وبلا فصحى:\n\n${enforced}`
+        }
+      ], { temperature: 0.2 });
+    }, 3, 2000, logger);
+
+    enforced = sanitizeDarijaText(enforced);
+    enforced = applyForbiddenWordFilter(enforced);
+
+    const { score } = darijaQualityScore(enforced);
+    if (score >= 70) {
+      return enforced;
+    }
+    attempt += 1;
+  }
+  return enforced;
+}
+
+async function cleanTranscript(client, text, logger, safeMode = false, darijaStrict = true) {
   const spinner = ora('Converting to 100% Darija...').start();
   
   try {
@@ -1604,6 +1748,11 @@ async function cleanTranscript(client, text, logger, safeMode = false) {
           { role: 'user', content: `${PROMPTS.safeMode}\n\n${cleanedText}` }
         ], { temperature: 0.2 });
       }, 3, 2000, logger);
+    }
+
+    if (darijaStrict) {
+      spinner.text = 'تشديد الدارجة...';
+      cleanedText = await enforceDarijaStrictText(client, cleanedText, logger);
     }
 
     spinner.succeed('✅ تم التحويل للدارجة 100%');
@@ -1702,51 +1851,82 @@ async function applyDiarization(client, text, logger) {
   }
 }
 
+async function cleanDarijaSubtitleBlock(client, blockText, logger, darijaStrict = true) {
+  const passA = await withRetry(async () => {
+    return await client.chat([
+      {
+        role: 'system',
+        content: `أنت كاتب دارجة. حوّل النص للدارجة المغربية الطبيعية، حيّد التكرار والتأتأة، وخلي المعنى. رجع غير النص.`
+      },
+      {
+        role: 'user',
+        content: `نص:\n${blockText}`
+      }
+    ], { temperature: 0.25 });
+  }, 3, 2000, logger);
+
+  if (!darijaStrict) {
+    const cleaned = sanitizeDarijaText(passA);
+    return cleaned || blockText;
+  }
+
+  let enforced = await withRetry(async () => {
+    return await client.chat([
+      {
+        role: 'system',
+        content: `أنت مدقق دارجة صارم. ممنوع الفصحى وممنوع كلمات فرنسية/إنجليزية إلا أسماء علم. رجع النص بالدارجة فقط.
+قواعد:
+- العربية فقط + أرقام 0-9
+- ممنوع هاد الكلمات: ${DARIJA_FORBIDDEN_WORDS.join('، ')}
+- استعمل الدارجة: ${DARIJA_MARKERS.slice(0, 10).join('، ')}`
+      },
+      {
+        role: 'user',
+        content: `صحّح هاد النص للدارجة الصارمة:\n${passA}`
+      }
+    ], { temperature: 0.2 });
+  }, 3, 2000, logger);
+
+  enforced = sanitizeDarijaText(enforced);
+  enforced = applyForbiddenWordFilter(enforced);
+
+  let { score } = darijaQualityScore(enforced);
+  let retries = 0;
+  const maxRetries = 2;
+  while (score < 70 && retries < maxRetries) {
+    enforced = await withRetry(async () => {
+      return await client.chat([
+        {
+          role: 'system',
+          content: `عاود صحّح النص للدارجة الصارمة. ممنوع الفصحى وممنوع الفرنسية/الإنجليزية. رجع غير النص.`
+        },
+        {
+          role: 'user',
+          content: enforced
+        }
+      ], { temperature: 0.2 });
+    }, 3, 2000, logger);
+
+    enforced = sanitizeDarijaText(enforced);
+    enforced = applyForbiddenWordFilter(enforced);
+    ({ score } = darijaQualityScore(enforced));
+    retries += 1;
+  }
+
+  return enforced || blockText;
+}
+
 // Generate Darija-cleaned SRT subtitles
-async function generateDarijaSRT(client, srtContent, logger) {
+async function generateDarijaSRT(client, srtContent, logger, darijaStrict = true) {
   const blocks = parseSRT(srtContent);
   const cleanedBlocks = [];
-  
-  // Process in batches to avoid too many API calls
-  const batchSize = 5;
-  
-  for (let i = 0; i < blocks.length; i += batchSize) {
-    const batch = blocks.slice(i, i + batchSize);
-    const textsToClean = batch.map(b => b.text).join('\n---\n');
-    
-    try {
-      const cleanedBatch = await withRetry(async () => {
-        return await client.chat([
-          {
-            role: 'system',
-            content: `أنت مغربي. حوّل هاد النصوص للدارجة المغربية 100%. ما تخلي حتى كلمة فصحى! كل نص مفصول بـ "---". رجع النصوص بنفس الترتيب والفاصل.
 
-أمثلة:
-"مرحباً بكم" → "مرحبا بيكم" أو "أهلا"
-"سوف نرى" → "غادي نشوفو"
-"ماذا تريد" → "شنو بغيتي"
-"أنا سعيد" → "أنا فرحان"
-"كيف حالك" → "كيداير/كيدايرة"
-"لا أعرف" → "معرفتش"`
-          },
-          {
-            role: 'user',
-            content: textsToClean
-          }
-        ], { temperature: 0.3 });
-      }, 3, 2000, logger);
-      
-      const cleanedTexts = cleanedBatch.split('---').map(t => t.trim());
-      
-      for (let j = 0; j < batch.length; j++) {
-        cleanedBlocks.push({
-          ...batch[j],
-          text: cleanedTexts[j] || batch[j].text
-        });
-      }
+  for (const block of blocks) {
+    try {
+      const cleanedText = await cleanDarijaSubtitleBlock(client, block.text, logger, darijaStrict);
+      cleanedBlocks.push({ ...block, text: cleanedText || block.text });
     } catch (error) {
-      // If batch fails, keep original
-      cleanedBlocks.push(...batch);
+      cleanedBlocks.push(block);
     }
   }
   
@@ -1821,7 +2001,7 @@ async function runPipeline(options) {
     logger.info(`Output: ${options.out}`);
 
     // Step 1: Check FFmpeg
-    logger.info('\n[1/7] Checking FFmpeg...');
+    logger.info('\n[1/8] Checking FFmpeg...');
     const hasFFmpeg = await checkFFmpeg();
     if (!hasFFmpeg) {
       console.log(getFFmpegInstructions());
@@ -1830,19 +2010,26 @@ async function runPipeline(options) {
     logger.success('FFmpeg is available');
 
     // Step 2: Validate input
-    logger.info('\n[2/7] Validating input...');
+    logger.info('\n[2/8] Validating input...');
     const inputPath = path.resolve(options.input);
     await validateInput(inputPath, logger);
 
     // Step 3: Initialize API
-    logger.info('\n[3/7] Initializing API...');
+    logger.info('\n[3/8] Initializing API...');
     
     // Detect or use specified provider
     let provider = options.provider;
+    if (provider === 'auto') {
+      provider = null;
+    }
     let apiKey;
     
     if (provider) {
-      const envKey = CONFIG.providers[provider]?.envKey;
+      const providerConfig = CONFIG.providers[provider];
+      if (!providerConfig) {
+        throw new Error(`Unknown provider: ${provider}`);
+      }
+      const envKey = providerConfig.envKey;
       apiKey = process.env[envKey];
       if (!apiKey) {
         throw new Error(`${envKey} not found for provider ${provider}`);
@@ -1869,16 +2056,31 @@ async function runPipeline(options) {
       apiKey = detected.key;
     }
 
+    const sttModel = options.sttModel || CONFIG.providers[provider]?.sttModel;
+    const chatModel = options.chatModel || options.model || CONFIG.providers[provider]?.chatModel;
+
     logger.info(`Using provider: ${chalk.cyan(provider.toUpperCase())}`);
-    
-    const client = new APIClient(provider, apiKey, logger);
+    logger.info(`Base URL: ${CONFIG.providers[provider]?.baseUrl}`);
+    logger.info(`STT model: ${sttModel || 'default'}`);
+    logger.info(`Chat model: ${chatModel || 'default'}`);
+
+    const client = new APIClient(provider, apiKey, logger, { sttModel, chatModel });
+    const responseFormat = client.getTranscriptionResponseFormat('srt') || 'provider-default';
+    logger.info(`Transcription response_format: ${responseFormat}`);
+    logger.info(`Diarization: ${options.diarization ? 'true' : 'false'}`);
+    logger.info(`chunkMinutes: ${options.chunkMinutes}`);
+    logger.info(`Format: ${options.format}`);
+
+    if (options.sttModel && (provider === 'gladia' || provider === 'assemblyai')) {
+      logger.warn(`STT model override is not supported for ${provider}. Using default.`);
+    }
     
     // For Gladia/AssemblyAI, we need a secondary client for chat (Darija conversion)
     let chatClient = client;
     if (provider === 'gladia' || provider === 'assemblyai') {
       // Try to use Groq for chat, fallback to simple cleaning
       if (process.env.GROQ_API_KEY) {
-        chatClient = new APIClient('groq', process.env.GROQ_API_KEY, logger);
+        chatClient = new APIClient('groq', process.env.GROQ_API_KEY, logger, { chatModel });
         logger.info(`Using Groq for Darija conversion`);
       } else {
         logger.warn('No Groq key found. Darija conversion will be basic.');
@@ -1892,12 +2094,12 @@ async function runPipeline(options) {
     logger.success(`${provider.toUpperCase()} API connected`);
 
     // Step 4: Extract audio
-    logger.info('\n[4/7] Extracting audio...');
+    logger.info('\n[4/8] Extracting audio...');
     const audioPath = path.join(tempDir, 'audio.wav');
     await extractAudio(inputPath, audioPath, logger);
 
     // Step 5: Transcribe
-    logger.info('\n[5/7] Transcribing audio...');
+    logger.info('\n[5/8] Transcribing audio...');
     let srtContent;
     
     if (options.chunkMinutes > 0) {
@@ -1917,6 +2119,7 @@ async function runPipeline(options) {
       srtContent = await transcribeAudio(client, audioPath, 'srt', logger);
     }
 
+    logger.info('\n[6/8] Optimizing subtitles...');
     srtContent = optimizeSRT(srtContent);
 
     // Save SRT
@@ -1940,13 +2143,13 @@ async function runPipeline(options) {
     await fs.writeFile(rawPath, rawText, 'utf-8');
     logger.success(`Saved: transcript_raw.txt`);
 
-    // Step 6: Clean transcript
+    // Step 7: Clean transcript
     if (!options.noClean) {
-      logger.info('\n[6/7] Cleaning transcript...');
+      logger.info('\n[7/8] Cleaning transcript...');
       
       let cleanedText;
       if (chatClient) {
-        cleanedText = await cleanTranscript(chatClient, rawText, logger, options.safeMode);
+        cleanedText = await cleanTranscript(chatClient, rawText, logger, options.safeMode, options.darijaStrict);
       } else {
         // Basic rule-based cleaning for when no chat API is available
         cleanedText = basicDarijaConversion(rawText);
@@ -1960,7 +2163,7 @@ async function runPipeline(options) {
       // Generate Darija SRT by cleaning each subtitle block
       if (chatClient) {
         logger.info('Generating Darija subtitles...');
-        const darijaSRT = await generateDarijaSRT(chatClient, srtContent, logger);
+        const darijaSRT = await generateDarijaSRT(chatClient, srtContent, logger, options.darijaStrict);
         
         const darijaSRTPath = path.join(options.out, 'subtitles_darija.srt');
         await fs.writeFile(darijaSRTPath, darijaSRT, 'utf-8');
@@ -1983,7 +2186,7 @@ async function runPipeline(options) {
 
       // Step 7: Generate captions
       if (!options.noCaption && chatClient) {
-        logger.info('\n[7/7] Generating captions...');
+        logger.info('Generating captions...');
         const { caption, variations } = await generateCaptions(chatClient, cleanedText, logger);
 
         const captionPath = path.join(options.out, 'caption_darija.txt');
@@ -1995,6 +2198,8 @@ async function runPipeline(options) {
         logger.success(`Saved: caption_variations.json`);
       }
     }
+
+    logger.info('\n[8/8] Finalizing outputs...');
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     logger.info('\n═══════════════════════════════════════════════════════');
@@ -2031,19 +2236,65 @@ program
   .name('darija-captions')
   .description('Video → Darija Captions Tool (Supports: Groq FREE, OpenAI, DeepSeek)')
   .version('2.0.0')
-  .requiredOption('-i, --input <path>', 'Input video file path')
+  .option('-i, --input <path>', 'Input video file path')
   .option('-o, --out <path>', 'Output directory', './output')
   .option('-l, --lang <lang>', 'Language (auto, ar)', 'auto')
   .option('-f, --format <format>', 'Subtitle format (srt, vtt, both)', 'both')
-  .option('-p, --provider <n>', 'API provider (groq, openai, deepseek) - auto-detects if not set')
+  .option('-p, --provider <n>', 'API provider (auto, gladia, assemblyai, groq, openrouter, gemini, openai, deepseek)')
   .option('--noClean', 'Skip transcript cleaning', false)
   .option('--noCaption', 'Skip caption generation', false)
   .option('--safeMode', 'Enable profanity softening', false)
   .option('--chunkMinutes <minutes>', 'Split audio into chunks (0 = off)', '0')
   .option('--keepTemp', 'Keep temporary files', false)
   .option('--diarization', 'Enable speaker diarization', false)
+  .option('--sttModel <name>', 'STT model override (provider-specific)')
+  .option('--chatModel <name>', 'Chat model override')
+  .option('--model <name>', 'Chat model override (alias for --chatModel)')
+  .option('--darijaStrict <boolean>', 'Strict Darija enforcement (default true)', 'true')
+  .option('--listModels', 'List available models for the selected provider and exit', false)
   .action(async (options) => {
     options.chunkMinutes = parseInt(options.chunkMinutes);
+    options.darijaStrict = normalizeBoolean(options.darijaStrict, true);
+
+    if (options.listModels) {
+      let provider = options.provider;
+      if (provider === 'auto') {
+        provider = null;
+      }
+      if (!provider) {
+        const detected = detectProvider();
+        if (!detected) {
+          console.error('No provider detected. Set --provider or configure an API key.');
+          process.exit(1);
+        }
+        provider = detected.provider;
+      }
+
+      const envKey = CONFIG.providers[provider]?.envKey;
+      const apiKey = process.env[envKey];
+      if (!apiKey) {
+        console.error(`${envKey} not found for provider ${provider}`);
+        process.exit(1);
+      }
+
+      const client = new APIClient(provider, apiKey, null, {
+        sttModel: options.sttModel,
+        chatModel: options.chatModel || options.model
+      });
+      const { models, source } = await client.listModels();
+      if (!models.length) {
+        console.log(`No model list available for ${provider} (${source}).`);
+      } else {
+        console.log(models.sort().join('\n'));
+      }
+      process.exit(0);
+    }
+
+    if (!options.input) {
+      console.error('Missing required --input (or use --listModels).');
+      process.exit(1);
+    }
+
     const exitCode = await runPipeline(options);
     process.exit(exitCode);
   });
