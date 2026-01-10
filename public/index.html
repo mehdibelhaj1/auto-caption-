@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Moroccan Darija Captions</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div>
+        <p class="app-eyebrow">Moroccan Darija Captions</p>
+        <h1>ترجمة دارجة مغربية احترافية للفيديوهات</h1>
+        <p class="app-subtitle">من الفيديو للـ SRT + Transcript + Captions بدارجة مغربية صافية.</p>
+      </div>
+      <div class="header-actions">
+        <button class="ghost" id="refreshStatus" type="button">تحديث الحالة</button>
+        <button class="primary" id="openKeyModal" type="button">إدارة مفاتيح الـ API</button>
+      </div>
+    </header>
+
+    <section class="card api-status">
+      <div class="card-header">
+        <h2>حالة المزودات</h2>
+        <p>تحقق من المزودات المتاحة قبل البدء.</p>
+      </div>
+      <div class="api-grid" id="apiStatus"></div>
+    </section>
+
+    <main class="grid">
+      <section class="card upload-card">
+        <div class="card-header">
+          <h2>رفع الفيديو</h2>
+          <p>اسحب الملف أو اختاره من جهازك.</p>
+        </div>
+        <div class="dropzone" id="dropZone" tabindex="0" role="button" aria-label="رفع فيديو">
+          <div class="dropzone-icon">🎬</div>
+          <div>
+            <strong>اسحب الفيديو هنا</strong>
+            <span>أو اضغط للاختيار</span>
+          </div>
+          <small>MP4, MOV, MKV, WebM, AVI</small>
+        </div>
+        <input type="file" id="fileInput" accept=".mp4,.mov,.mkv,.webm,.avi" hidden />
+
+        <div class="file-card" id="fileCard" aria-live="polite">
+          <div>
+            <p class="file-name" id="fileName">اسم الملف</p>
+            <p class="file-meta" id="fileMeta">0 MB</p>
+          </div>
+          <button class="icon-button" id="clearFile" type="button" aria-label="إزالة الملف">✕</button>
+        </div>
+
+        <div class="estimate">
+          <span>الوقت التقديري:</span>
+          <strong id="estimateTime">—</strong>
+        </div>
+
+        <div class="summary" id="runSummary">
+          <p>المزود: <strong id="summaryProvider">—</strong></p>
+          <p>STT: <strong id="summaryStt">—</strong></p>
+          <p>Chat: <strong id="summaryChat">—</strong></p>
+        </div>
+
+        <button class="primary full" id="startBtn" type="button" disabled>ابدأ المعالجة</button>
+        <p class="hint" id="startHint">اختر ملفاً صالحاً وتأكد من توفر مزود.</p>
+      </section>
+
+      <section class="card settings-card">
+        <div class="card-header">
+          <h2>الإعدادات</h2>
+          <p>خصص المزودات والموديلات قبل البدء.</p>
+        </div>
+
+        <div class="field">
+          <label for="providerSelect">المزود</label>
+          <select id="providerSelect">
+            <option value="auto">تلقائي (أفضل متاح)</option>
+          </select>
+          <small id="providerHint">سيتم اختيار أول مزود متاح حسب الأولوية.</small>
+        </div>
+
+        <div class="field">
+          <label for="formatSelect">الصيغة</label>
+          <select id="formatSelect">
+            <option value="both">SRT + VTT</option>
+            <option value="srt">SRT فقط</option>
+            <option value="vtt">VTT فقط</option>
+          </select>
+        </div>
+
+        <div class="toggle-grid">
+          <label class="toggle">
+            <input type="checkbox" id="safeMode" />
+            <span>وضع آمن (تخفيف الألفاظ)</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="diarization" />
+            <span>تمييز المتكلمين</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="darijaStrict" checked />
+            <span>دارجة صارمة</span>
+          </label>
+        </div>
+
+        <div class="field">
+          <label for="chunkMinutes">تقسيم الصوت (بالدقائق)</label>
+          <input type="number" id="chunkMinutes" min="0" step="1" value="0" />
+          <small>0 = بدون تقسيم (مناسب للفيديوهات القصيرة).</small>
+        </div>
+
+        <div class="model-panel">
+          <div class="model-header">
+            <div>
+              <h3>الموديلات</h3>
+              <p>يمكنك اختيار STT وChat أو تركها افتراضية.</p>
+            </div>
+            <button class="ghost" id="fetchModels" type="button">جلب الموديلات</button>
+          </div>
+
+          <div class="field">
+            <label for="sttModelInput">STT Model</label>
+            <input type="text" id="sttModelInput" list="sttModelList" placeholder="whisper-1" />
+            <datalist id="sttModelList"></datalist>
+          </div>
+
+          <div class="field">
+            <label for="chatModelInput">Chat Model</label>
+            <input type="text" id="chatModelInput" list="chatModelList" placeholder="gpt-4o-mini" />
+            <datalist id="chatModelList"></datalist>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <section class="card progress-card" id="progressCard">
+      <div class="card-header">
+        <h2>التقدم و السجلات</h2>
+        <p id="statusText">جاهز للبدء.</p>
+      </div>
+      <div class="progress">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-meta">
+        <span id="progressPercent">0%</span>
+        <span id="progressStage">—</span>
+      </div>
+      <div class="logs" id="logList" aria-live="polite"></div>
+      <button class="primary" id="downloadBtn" type="button" hidden>تحميل النتائج</button>
+    </section>
+
+    <footer>
+      <p>صُنع للمبدعين المغاربة 🇲🇦 — Darija Captions</p>
+    </footer>
+  </div>
+
+  <div class="modal" id="keyModal" role="dialog" aria-modal="true" aria-labelledby="keyModalTitle">
+    <div class="modal-content">
+      <header>
+        <h3 id="keyModalTitle">إضافة أو تحديث مفتاح API</h3>
+        <button class="icon-button" id="closeKeyModal" type="button" aria-label="إغلاق">✕</button>
+      </header>
+      <div class="field">
+        <label for="keyProvider">المزود</label>
+        <select id="keyProvider">
+          <option value="gladia">Gladia (أفضل للهجات)</option>
+          <option value="assemblyai">AssemblyAI</option>
+          <option value="groq">Groq</option>
+          <option value="openrouter">OpenRouter</option>
+          <option value="gemini">Gemini</option>
+          <option value="openai">OpenAI</option>
+          <option value="deepseek">DeepSeek</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="keyInput">API Key</label>
+        <input id="keyInput" type="text" dir="ltr" placeholder="sk-... أو gsk_..." />
+        <small id="keyHelp"></small>
+      </div>
+      <button class="primary full" id="saveKeyBtn" type="button">حفظ وتجربة المفتاح</button>
+      <p class="result" id="keyResult" aria-live="polite"></p>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

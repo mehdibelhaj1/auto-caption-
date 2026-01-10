@@ -11,6 +11,7 @@
 ## ✨ Features
 
 - 🎯 **Moroccan Darija optimized** - Keeps the authentic Darija vibe, never converts to MSA
+- 🧼 **Darija strict mode** - Two-pass cleaning with MSA blockers and Darija quality scoring
 - 📝 **Multiple outputs**: SRT, VTT, raw transcript, cleaned transcript, social captions
 - 🤖 **AI-powered cleaning** - Removes fillers (aaa, mmm, euh), stutters, and repetitions
 - 📱 **Social media ready** - Generates Instagram Reels / TikTok style captions with CTAs
@@ -40,7 +41,7 @@ output/
 
 1. **Node.js 18+** - [Download](https://nodejs.org/)
 2. **FFmpeg** - Required for audio extraction
-3. **OpenAI API Key** - [Get one here](https://platform.openai.com/api-keys)
+3. **API Key** for one provider (Gladia, AssemblyAI, Groq, OpenRouter, Gemini, OpenAI, or DeepSeek)
 
 ### Install FFmpeg
 
@@ -128,12 +129,17 @@ node index.js \
 | `-o, --out <path>` | Output directory | `./output` |
 | `-l, --lang <lang>` | Language: `auto` or `ar` | `auto` |
 | `-f, --format <fmt>` | Output: `srt`, `vtt`, or `both` | `both` |
+| `-p, --provider <name>` | Provider (`auto`, `gladia`, `assemblyai`, `groq`, `openrouter`, `gemini`, `openai`, `deepseek`) | `auto` |
 | `--safeMode` | Soften profanity | `false` |
 | `--diarization` | Enable speaker detection | `false` |
+| `--darijaStrict <bool>` | Strict Darija enforcement | `true` |
 | `--noClean` | Skip transcript cleaning | `false` |
 | `--noCaption` | Skip caption generation | `false` |
 | `--chunkMinutes <n>` | Split audio (for long videos) | `0` (off) |
-| `--model <name>` | Chat model override | `gpt-4o-mini` |
+| `--sttModel <name>` | STT model override | provider default |
+| `--chatModel <name>` | Chat model override | provider default |
+| `--model <name>` | Chat model override (alias) | provider default |
+| `--listModels` | List models for provider and exit | `false` |
 | `--keepTemp` | Keep temp files for debugging | `false` |
 
 ## 🌐 Web UI (Optional)
@@ -153,8 +159,30 @@ Features:
 - ⚙️ Configure options visually
 - 📊 Real-time progress tracking
 - ⬇️ Download results as ZIP
+- 🔍 Fetch provider models via the UI
+
+### Provider Auto-Detection Priority
+
+When you leave `--provider` unset (or choose **auto** in the UI), the CLI picks the first available API key in this order:
+
+`GLADIA` → `AssemblyAI` → `Groq` → `OpenRouter` → `Gemini` → `OpenAI` → `DeepSeek`
 
 ## 🎯 Example Commands
+
+### OpenAI with explicit models
+```bash
+node index.js --input "./video.mp4" --provider openai --sttModel whisper-1 --chatModel gpt-4o-mini --format srt
+```
+
+### List models for a provider
+```bash
+node index.js --provider openai --listModels
+```
+
+### Darija strict on (default)
+```bash
+node index.js --input "./video.mp4" --darijaStrict true
+```
 
 ### Basic transcription
 ```bash
@@ -178,7 +206,7 @@ node index.js -i "./video.mp4" --format srt --lang ar
 
 ### Using a different model
 ```bash
-node index.js -i "./video.mp4" --model gpt-4o
+node index.js -i "./video.mp4" --chatModel gpt-4o
 ```
 
 ## 📄 Output Examples
@@ -209,6 +237,14 @@ node index.js -i "./video.mp4" --model gpt-4o
 }
 ```
 
+## 🧪 Darija Strict Test Script
+
+Run a tiny offline check to verify timestamps remain untouched and forbidden MSA words are removed:
+
+```bash
+node scripts/test-darija-strict.js
+```
+
 ## 🔧 Configuration
 
 ### Environment Variables
@@ -222,6 +258,15 @@ OPENAI_API_KEY=sk-your-api-key-here
 # Optional
 PORT=3000  # Web UI port
 ```
+
+## 🧠 How to choose OpenAI models
+
+OpenAI models are selected **per request**. You can list models at any time with:
+
+- CLI: `node index.js --provider openai --listModels`
+- API: `GET https://api.openai.com/v1/models`
+
+Use `--sttModel` to choose the transcription model (default: `whisper-1`) and `--chatModel`/`--model` to choose the chat model (default: `gpt-4o-mini`). For UI users, click **“جلب الموديلات”** to populate the model dropdowns.
 
 ### Supported Video Formats
 
@@ -275,9 +320,10 @@ npm run build
 2. **Audio Extraction** - FFmpeg extracts mono 16kHz WAV
 3. **Transcription** - Whisper API generates SRT with timestamps
 4. **SRT Optimization** - Split long lines, merge short blocks
-5. **VTT Conversion** - Convert SRT to VTT format
-6. **Transcript Cleaning** - GPT removes fillers, fixes spelling
-7. **Caption Generation** - GPT creates social-ready captions
+5. **Darija Strict Cleanup** - Two-pass Darija enforcement (no MSA drift)
+6. **VTT Conversion** - Convert SRT to VTT format
+7. **Transcript Cleaning** - GPT removes fillers, fixes spelling
+8. **Caption Generation** - GPT creates social-ready captions
 
 ## 🔒 Privacy & Security
 
