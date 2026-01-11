@@ -69,10 +69,10 @@ const upload = multer({ storage, limits: { fileSize: 2 * 1024 * 1024 * 1024 } })
 const jobs = new Map();
 const modelCache = new Map();
 
-const PROVIDER_PRIORITY = ['gladia', 'assemblyai', 'groq', 'openrouter', 'gemini', 'openai', 'deepseek'];
+const PROVIDER_PRIORITY = ['gladia', 'assemblyai', 'groq', 'openai', 'gemini', 'openrouter'];
 const PROVIDER_DEFAULTS = {
-  gladia: { sttModel: 'gladia-default', chatModel: 'groq' },
-  assemblyai: { sttModel: 'assemblyai-default', chatModel: 'groq' },
+  gladia: { sttModel: 'gladia-default', chatModel: null },
+  assemblyai: { sttModel: 'assemblyai-default', chatModel: null },
   groq: { sttModel: 'whisper-large-v3', chatModel: 'llama-3.3-70b-versatile' },
   openrouter: { sttModel: 'google/gemini-2.0-flash-exp:free', chatModel: 'google/gemini-2.0-flash-exp:free' },
   gemini: { sttModel: 'gemini-1.5-flash', chatModel: 'gemini-1.5-flash' },
@@ -80,7 +80,7 @@ const PROVIDER_DEFAULTS = {
   deepseek: { sttModel: null, chatModel: 'deepseek-chat' }
 };
 
-function resolveAutoProvider() {
+function resolveAutoSttProvider() {
   for (const provider of PROVIDER_PRIORITY) {
     const envKey = `${provider.toUpperCase()}_API_KEY`;
     if (process.env[envKey]) {
@@ -261,7 +261,7 @@ async function fetchModelsForProvider(provider) {
   }
 
   if (provider === 'gladia' || provider === 'assemblyai') {
-    return { provider, models: [], source: 'not_supported', defaults };
+    return { provider, models: ['provider-managed'], source: 'static', defaults };
   }
 
   let url;
@@ -327,7 +327,7 @@ app.get('/api/models', async (req, res) => {
   await loadEnv();
   let provider = req.query.provider;
   if (!provider || provider === 'auto') {
-    provider = resolveAutoProvider();
+    provider = resolveAutoSttProvider();
   }
   if (!provider) {
     return res.status(400).json({ error: 'No provider available' });
@@ -394,8 +394,13 @@ app.post('/api/upload', upload.single('video'), async (req, res) => {
         diarization: req.body.diarization === 'true',
         format: req.body.format || 'both',
         provider: req.body.provider !== 'auto' ? req.body.provider : null,
+        sttProvider: req.body.sttProvider !== 'auto' ? req.body.sttProvider : null,
+        chatProvider: req.body.chatProvider !== 'auto' ? req.body.chatProvider : null,
         sttModel: req.body.sttModel || null,
         chatModel: req.body.chatModel || null,
+        lang: req.body.lang || 'auto',
+        style: req.body.style || 'darija',
+        script: req.body.script || 'arabic',
         darijaStrict: req.body.darijaStrict !== 'false',
         chunkMinutes: req.body.chunkMinutes ? parseInt(req.body.chunkMinutes, 10) : 0
       }
@@ -445,8 +450,13 @@ async function processJob(job) {
     if (job.options.safeMode) args.push('--safeMode');
     if (job.options.diarization) args.push('--diarization');
     if (job.options.provider) args.push('--provider', job.options.provider);
+    if (job.options.sttProvider) args.push('--sttProvider', job.options.sttProvider);
+    if (job.options.chatProvider) args.push('--chatProvider', job.options.chatProvider);
     if (job.options.sttModel) args.push('--sttModel', job.options.sttModel);
     if (job.options.chatModel) args.push('--chatModel', job.options.chatModel);
+    if (job.options.lang) args.push('--lang', job.options.lang);
+    if (job.options.style) args.push('--style', job.options.style);
+    if (job.options.script) args.push('--script', job.options.script);
     if (job.options.darijaStrict === false) args.push('--darijaStrict', 'false');
     if (job.options.chunkMinutes > 0) args.push('--chunkMinutes', String(job.options.chunkMinutes));
     

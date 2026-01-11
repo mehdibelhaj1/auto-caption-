@@ -82,11 +82,50 @@
         </div>
 
         <div class="field">
+          <label for="sttProviderSelect">مزود التفريغ الصوتي (STT)</label>
+          <select id="sttProviderSelect">
+            <option value="auto">تلقائي (حسب الأولوية)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="chatProviderSelect">مزود التنظيف/الـ Chat</label>
+          <select id="chatProviderSelect">
+            <option value="auto">تلقائي (أفضل متاح)</option>
+          </select>
+        </div>
+
+        <div class="field">
           <label for="formatSelect">الصيغة</label>
           <select id="formatSelect">
             <option value="both">SRT + VTT</option>
             <option value="srt">SRT فقط</option>
             <option value="vtt">VTT فقط</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="langSelect">لغة التفريغ الصوتي</label>
+          <select id="langSelect">
+            <option value="auto">تلقائي</option>
+            <option value="ar">عربية (فرض)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="styleSelect">أسلوب التنظيف</label>
+          <select id="styleSelect">
+            <option value="darija">دارجة مغربية</option>
+            <option value="mixed">مختلط (دارجة + فرنسي/إنجليزي)</option>
+            <option value="msa">فصحى (MSA)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="scriptSelect">السكريبت</label>
+          <select id="scriptSelect">
+            <option value="arabic">عربي (افتراضي)</option>
+            <option value="latin">لاتيني (Arabizi)</option>
           </select>
         </div>
 

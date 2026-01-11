@@ -2,11 +2,11 @@
 
 const SAMPLE_SRT = `1
 00:00:00,000 --> 00:00:03,200
-هذا مثال سوف نبدأ به.
+هذا مثال سوف نبدأ به، bonjour.
 
 2
 00:00:03,200 --> 00:00:06,000
-يجب أن ننتبه لأن ذلك مهم.
+يجب أن ننتبه لأن ذلك مهم hello.
 
 3
 00:00:06,000 --> 00:00:09,000
@@ -16,6 +16,8 @@ const FORBIDDEN = [
   'سوف', 'يجب', 'لذلك', 'هذا', 'هذه', 'الذي', 'التي', 'إن', 'قد', 'لن', 'لم',
   'ليس', 'حيث', 'بينما', 'كذلك', 'وبالتالي', 'من أجل', 'على الرغم'
 ];
+
+const MIXED_TOKENS = ['bonjour', 'hello'];
 
 function parseSRT(srt) {
   const blocks = [];
@@ -36,8 +38,16 @@ function formatSRT(blocks) {
   return blocks.map((block, i) => `${i + 1}\n${block.start} --> ${block.end}\n${block.text}`).join('\n\n');
 }
 
-function cleanText(text) {
-  let cleaned = text.replace(/[A-Za-z]/g, '');
+function cleanMixedText(text) {
+  let cleaned = text;
+  cleaned = cleaned.replace(/\b(آه+|ممم+|اه+|euh+|uh+)\b/gi, '');
+  cleaned = cleaned.replace(/\b(يعني)\s+\1\b/g, '$1');
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  return cleaned;
+}
+
+function cleanDarijaText(text) {
+  let cleaned = text;
   for (const term of FORBIDDEN) {
     const pattern = new RegExp(term, 'g');
     cleaned = cleaned.replace(pattern, '');
@@ -47,25 +57,37 @@ function cleanText(text) {
 }
 
 const originalBlocks = parseSRT(SAMPLE_SRT);
-const cleanedBlocks = originalBlocks.map(block => ({
+const mixedBlocks = originalBlocks.map(block => ({
   ...block,
-  text: cleanText(block.text)
+  text: cleanMixedText(block.text)
+}));
+const darijaBlocks = originalBlocks.map(block => ({
+  ...block,
+  text: cleanDarijaText(block.text)
 }));
 
-const output = formatSRT(cleanedBlocks);
-console.log(output);
+const mixedOutput = formatSRT(mixedBlocks);
+const darijaOutput = formatSRT(darijaBlocks);
 
-const timestampsUnchanged = originalBlocks.every((block, idx) => block.start === cleanedBlocks[idx].start && block.end === cleanedBlocks[idx].end);
-const forbiddenGone = FORBIDDEN.every(term => !output.includes(term));
+const timestampsUnchanged = originalBlocks.every((block, idx) => (
+  block.start === mixedBlocks[idx].start && block.end === mixedBlocks[idx].end
+));
 
 if (!timestampsUnchanged) {
-  console.error('❌ Timestamps changed');
+  console.error('❌ Timestamps changed after cleaning');
   process.exit(1);
 }
 
+const mixedPreserved = MIXED_TOKENS.every(token => mixedOutput.includes(token));
+if (!mixedPreserved) {
+  console.error('❌ Mixed style removed French/English tokens');
+  process.exit(1);
+}
+
+const forbiddenGone = FORBIDDEN.every(term => !darijaOutput.includes(term));
 if (!forbiddenGone) {
-  console.error('❌ Forbidden words still present');
+  console.error('❌ Darija style did not remove MSA blockers');
   process.exit(1);
 }
 
-console.log('✅ Darija strict test passed');
+console.log('✅ Smoke test passed');
