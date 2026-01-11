@@ -1,4 +1,5 @@
-const PRIORITY = ['gladia', 'assemblyai', 'groq', 'openrouter', 'gemini', 'openai', 'deepseek'];
+const STT_PRIORITY = ['gladia', 'assemblyai', 'groq', 'openai', 'gemini', 'openrouter'];
+const CHAT_PRIORITY = ['openai', 'groq', 'openrouter', 'gemini', 'deepseek'];
 
 const elements = {
   apiStatus: document.getElementById('apiStatus'),
@@ -17,8 +18,13 @@ const elements = {
   startBtn: document.getElementById('startBtn'),
   startHint: document.getElementById('startHint'),
   providerSelect: document.getElementById('providerSelect'),
+  sttProviderSelect: document.getElementById('sttProviderSelect'),
+  chatProviderSelect: document.getElementById('chatProviderSelect'),
   providerHint: document.getElementById('providerHint'),
   formatSelect: document.getElementById('formatSelect'),
+  langSelect: document.getElementById('langSelect'),
+  styleSelect: document.getElementById('styleSelect'),
+  scriptSelect: document.getElementById('scriptSelect'),
   safeMode: document.getElementById('safeMode'),
   diarization: document.getElementById('diarization'),
   darijaStrict: document.getElementById('darijaStrict'),
@@ -47,7 +53,8 @@ const state = {
   file: null,
   providers: [],
   providerStatuses: [],
-  autoProvider: null,
+  autoSttProvider: null,
+  autoChatProvider: null,
   jobId: null
 };
 
@@ -78,39 +85,57 @@ function estimateDuration(fileSizeBytes, chunkMinutes) {
   return `${minutes} دقيقة تقريباً`;
 }
 
-function resolveAutoProvider() {
-  for (const provider of PRIORITY) {
+function resolveAutoSttProvider() {
+  for (const provider of STT_PRIORITY) {
+    const status = state.providerStatuses.find(p => p.name === provider && p.status === 'success' && p.hasWhisper);
+    if (status) return provider;
+  }
+  return null;
+}
+
+function resolveAutoChatProvider() {
+  for (const provider of CHAT_PRIORITY) {
     const status = state.providerStatuses.find(p => p.name === provider && p.status === 'success');
     if (status) return provider;
   }
   return null;
 }
 
+function resolveEffectiveProvider(kind) {
+  const baseProvider = elements.providerSelect.value === 'auto' ? null : elements.providerSelect.value;
+  if (kind === 'stt') {
+    const sttOverride = elements.sttProviderSelect.value === 'auto' ? null : elements.sttProviderSelect.value;
+    return sttOverride || baseProvider || state.autoSttProvider;
+  }
+  const chatOverride = elements.chatProviderSelect.value === 'auto' ? null : elements.chatProviderSelect.value;
+  return chatOverride || baseProvider || state.autoChatProvider;
+}
+
 function updateSummary() {
-  const selectedProvider = elements.providerSelect.value;
-  const effectiveProvider = selectedProvider === 'auto' ? state.autoProvider : selectedProvider;
-  elements.summaryProvider.textContent = effectiveProvider ? `${effectiveProvider.toUpperCase()}` : 'غير متاح';
-  elements.summaryStt.textContent = elements.sttModelInput.value || 'افتراضي';
-  elements.summaryChat.textContent = elements.chatModelInput.value || 'افتراضي';
+  const effectiveProvider = elements.providerSelect.value === 'auto' ? 'AUTO' : elements.providerSelect.value.toUpperCase();
+  const effectiveStt = resolveEffectiveProvider('stt');
+  const effectiveChat = resolveEffectiveProvider('chat');
+  elements.summaryProvider.textContent = effectiveProvider || 'AUTO';
+  elements.summaryStt.textContent = effectiveStt ? `${effectiveStt.toUpperCase()} • ${elements.sttModelInput.value || 'افتراضي'}` : 'غير متاح';
+  elements.summaryChat.textContent = effectiveChat ? `${effectiveChat.toUpperCase()} • ${elements.chatModelInput.value || 'افتراضي'}` : 'غير متاح';
 }
 
 function updateStartState() {
-  const selectedProvider = elements.providerSelect.value;
-  const effectiveProvider = selectedProvider === 'auto' ? state.autoProvider : selectedProvider;
-  const providerReady = !!effectiveProvider;
+  const effectiveStt = resolveEffectiveProvider('stt');
+  const providerReady = !!effectiveStt;
   const canStart = !!state.file && providerReady;
   elements.startBtn.disabled = !canStart;
   elements.startHint.textContent = canStart
-    ? `سيتم التشغيل عبر ${effectiveProvider.toUpperCase()}.`
-    : 'اختر ملفاً صالحاً وتأكد من توفر مزود.';
+    ? `سيتم التشغيل عبر ${effectiveStt.toUpperCase()} للتفريغ.`
+    : 'اختر ملفاً صالحاً وتأكد من توفر مزود STT.';
 }
 
 function updateProviderHint() {
   const selected = elements.providerSelect.value;
   if (selected === 'auto') {
-    elements.providerHint.textContent = state.autoProvider
-      ? `سيتم اختيار ${state.autoProvider.toUpperCase()} تلقائياً حسب الأولوية.`
-      : 'لا يوجد مزود متاح حالياً.';
+    elements.providerHint.textContent = state.autoSttProvider
+      ? `STT تلقائي: ${state.autoSttProvider.toUpperCase()} حسب الأولوية.`
+      : 'لا يوجد مزود STT متاح حالياً.';
   } else {
     elements.providerHint.textContent = providerHelp[selected] || 'مزود مخصص.';
   }
@@ -156,9 +181,12 @@ async function refreshStatus() {
     const res = await fetch('/api/status');
     const data = await res.json();
     state.providerStatuses = data.apis;
-    state.autoProvider = resolveAutoProvider();
+    state.autoSttProvider = resolveAutoSttProvider();
+    state.autoChatProvider = resolveAutoChatProvider();
 
     elements.providerSelect.innerHTML = '<option value="auto">تلقائي (أفضل متاح)</option>';
+    elements.sttProviderSelect.innerHTML = '<option value="auto">تلقائي (حسب الأولوية)</option>';
+    elements.chatProviderSelect.innerHTML = '<option value="auto">تلقائي (أفضل متاح)</option>';
     elements.apiStatus.innerHTML = '';
 
     if (!data.apis.length) {
@@ -171,6 +199,18 @@ async function refreshStatus() {
       option.textContent = api.label;
       option.disabled = api.status !== 'success';
       elements.providerSelect.appendChild(option);
+
+      const sttOption = document.createElement('option');
+      sttOption.value = api.name;
+      sttOption.textContent = api.label;
+      sttOption.disabled = api.status !== 'success' || !api.hasWhisper;
+      elements.sttProviderSelect.appendChild(sttOption);
+
+      const chatOption = document.createElement('option');
+      chatOption.value = api.name;
+      chatOption.textContent = api.label;
+      chatOption.disabled = api.status !== 'success';
+      elements.chatProviderSelect.appendChild(chatOption);
 
       const tile = document.createElement('div');
       tile.className = `api-tile ${api.status === 'success' ? 'ok' : 'error'}`;
@@ -193,31 +233,52 @@ async function refreshStatus() {
 }
 
 async function fetchModels() {
-  const provider = elements.providerSelect.value;
+  const sttProvider = resolveEffectiveProvider('stt');
+  const chatProvider = resolveEffectiveProvider('chat');
   elements.fetchModels.disabled = true;
   elements.fetchModels.textContent = 'جاري التحميل...';
   try {
-    const res = await fetch(`/api/models?provider=${provider}`);
-    const data = await res.json();
-    if (data.error) {
-      addLog(`⚠️ تعذر جلب الموديلات: ${data.error}`, 'error');
-    } else {
-      elements.sttModelList.innerHTML = '';
-      elements.chatModelList.innerHTML = '';
-      data.models.forEach(model => {
-        const option = document.createElement('option');
-        option.value = model;
-        elements.sttModelList.appendChild(option.cloneNode(true));
-        elements.chatModelList.appendChild(option);
-      });
-      if (data.defaults?.sttModel && !elements.sttModelInput.value) {
-        elements.sttModelInput.value = data.defaults.sttModel || '';
-      }
-      if (data.defaults?.chatModel && !elements.chatModelInput.value) {
-        elements.chatModelInput.value = data.defaults.chatModel || '';
-      }
-      updateSummary();
+    if (!sttProvider && !chatProvider) {
+      addLog('⚠️ لا يوجد مزود متاح لجلب الموديلات.', 'error');
+      return;
     }
+
+    if (sttProvider) {
+      const resStt = await fetch(`/api/models?provider=${sttProvider}`);
+      const dataStt = await resStt.json();
+      elements.sttModelList.innerHTML = '';
+      if (dataStt.error) {
+        addLog(`⚠️ تعذر جلب موديلات STT: ${dataStt.error}`, 'error');
+      } else {
+        dataStt.models.forEach(model => {
+          const option = document.createElement('option');
+          option.value = model;
+          elements.sttModelList.appendChild(option);
+        });
+        if (dataStt.defaults?.sttModel && !elements.sttModelInput.value) {
+          elements.sttModelInput.value = dataStt.defaults.sttModel || '';
+        }
+      }
+    }
+
+    if (chatProvider) {
+      const resChat = await fetch(`/api/models?provider=${chatProvider}`);
+      const dataChat = await resChat.json();
+      elements.chatModelList.innerHTML = '';
+      if (dataChat.error) {
+        addLog(`⚠️ تعذر جلب موديلات Chat: ${dataChat.error}`, 'error');
+      } else {
+        dataChat.models.forEach(model => {
+          const option = document.createElement('option');
+          option.value = model;
+          elements.chatModelList.appendChild(option);
+        });
+        if (dataChat.defaults?.chatModel && !elements.chatModelInput.value) {
+          elements.chatModelInput.value = dataChat.defaults.chatModel || '';
+        }
+      }
+    }
+    updateSummary();
   } catch (error) {
     addLog('⚠️ فشل جلب الموديلات.', 'error');
   } finally {
@@ -237,8 +298,13 @@ async function startJob() {
   formData.append('diarization', elements.diarization.checked);
   formData.append('format', elements.formatSelect.value);
   formData.append('provider', elements.providerSelect.value);
+  formData.append('sttProvider', elements.sttProviderSelect.value);
+  formData.append('chatProvider', elements.chatProviderSelect.value);
   formData.append('sttModel', elements.sttModelInput.value.trim());
   formData.append('chatModel', elements.chatModelInput.value.trim());
+  formData.append('lang', elements.langSelect.value);
+  formData.append('style', elements.styleSelect.value);
+  formData.append('script', elements.scriptSelect.value);
   formData.append('darijaStrict', elements.darijaStrict.checked);
   formData.append('chunkMinutes', elements.chunkMinutes.value || '0');
 
@@ -386,12 +452,44 @@ elements.chunkMinutes.addEventListener('input', () => {
   elements.estimateTime.textContent = estimateDuration(state.file?.size, parseInt(elements.chunkMinutes.value, 10));
 });
 
+function updateDarijaStrictState() {
+  if (elements.styleSelect.value !== 'darija') {
+    elements.darijaStrict.checked = false;
+    elements.darijaStrict.disabled = true;
+  } else {
+    elements.darijaStrict.disabled = false;
+    if (!elements.darijaStrict.checked) {
+      elements.darijaStrict.checked = true;
+    }
+  }
+}
+
 elements.providerSelect.addEventListener('change', () => {
   updateProviderHint();
   fetchModels();
   updateSummary();
   updateStartState();
 });
+
+elements.sttProviderSelect.addEventListener('change', () => {
+  fetchModels();
+  updateSummary();
+  updateStartState();
+});
+
+elements.chatProviderSelect.addEventListener('change', () => {
+  fetchModels();
+  updateSummary();
+  updateStartState();
+});
+
+elements.styleSelect.addEventListener('change', () => {
+  updateDarijaStrictState();
+  updateSummary();
+});
+
+elements.langSelect.addEventListener('change', updateSummary);
+elements.scriptSelect.addEventListener('change', updateSummary);
 
 elements.sttModelInput.addEventListener('input', updateSummary);
 elements.chatModelInput.addEventListener('input', updateSummary);
@@ -416,3 +514,4 @@ elements.saveKeyBtn.addEventListener('click', saveKey);
 
 refreshStatus();
 fetchModels();
+updateDarijaStrictState();

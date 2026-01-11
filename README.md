@@ -6,16 +6,18 @@
 
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-green)
 ![License](https://img.shields.io/badge/License-MIT-blue)
-![OpenAI](https://img.shields.io/badge/OpenAI-Whisper%20%2B%20GPT-purple)
+![Providers](https://img.shields.io/badge/Providers-Multi--STT%20%2B%20LLM-purple)
 
 ## ✨ Features
 
-- 🎯 **Moroccan Darija optimized** - Keeps the authentic Darija vibe, never converts to MSA
-- 🧼 **Darija strict mode** - Two-pass cleaning with MSA blockers and Darija quality scoring
+- 🎯 **Moroccan Darija optimized (default)** - Keeps the authentic Darija vibe with real code-switching (Darija + French + English)
+- 🧼 **Darija strict mode** - Two-pass cleaning with MSA blockers while preserving non-Arabic words
+- 🧩 **Style control** - `mixed`, `darija`, or `msa` cleaning modes
+- 🔤 **Script control** - Arabic script or Arabizi (Latin + digits 2/3/7/9)
 - 📝 **Multiple outputs**: SRT, VTT, raw transcript, cleaned transcript, social captions
 - 🤖 **AI-powered cleaning** - Removes fillers (aaa, mmm, euh), stutters, and repetitions
 - 📱 **Social media ready** - Generates Instagram Reels / TikTok style captions with CTAs
-- 🔤 **Bilingual support** - Handles Darija mixed with French naturally
+- 🌍 **Provider + model selection** - Pick STT/Chat providers and models per run
 - 🛡️ **Safe mode** - Optional profanity softening
 - 👥 **Speaker detection** - Heuristic-based speaker diarization
 - ⏱️ **Long video support** - Chunk mode for videos over 25MB
@@ -28,12 +30,17 @@ output/
 ├── subtitles.srt              # Timed subtitles (SRT format)
 ├── subtitles.vtt              # Timed subtitles (VTT format)
 ├── transcript_raw.txt         # Raw transcript (no timestamps)
-├── transcript_clean_darija.txt # Cleaned Darija transcript
+├── transcript_clean_darija.txt # Cleaned transcript (style-dependent)
 ├── transcript_diarized.txt    # With speaker labels (if enabled)
-├── caption_darija.txt         # Ready-to-use social caption
-├── caption_variations.json    # 3 variations: neutral/hype/classy
+├── subtitles_darija.srt       # Cleaned subtitles (style-dependent)
+├── subtitles_darija.vtt       # Cleaned subtitles (style-dependent)
+├── caption_darija.txt         # Ready-to-use social caption (style-dependent)
+├── caption_variations_darija.json # 3 variations: neutral/hype/classy
 └── run.log                    # Processing log with timestamps
 ```
+
+> ✅ If `--style` is `mixed` or `msa`, the cleaned outputs use the same naming pattern:
+> `transcript_clean_mixed.txt`, `subtitles_mixed.srt`, `caption_mixed.txt`, etc.
 
 ## 🚀 Quick Start
 
@@ -100,8 +107,8 @@ cd darija-captions
 # Install dependencies
 npm install
 
-# Create .env file with your API key
-echo "OPENAI_API_KEY=sk-your-key-here" > .env
+# Create .env file with your API key (see .env.example)
+echo "GROQ_API_KEY=gsk-your-key-here" > .env
 ```
 
 ### Run
@@ -115,6 +122,8 @@ node index.js \
   --input "./video.mp4" \
   --out "./my-output" \
   --lang auto \
+  --style darija \
+  --script arabic \
   --format both \
   --safeMode \
   --diarization \
@@ -130,9 +139,13 @@ node index.js \
 | `-l, --lang <lang>` | Language: `auto` or `ar` | `auto` |
 | `-f, --format <fmt>` | Output: `srt`, `vtt`, or `both` | `both` |
 | `-p, --provider <name>` | Provider (`auto`, `gladia`, `assemblyai`, `groq`, `openrouter`, `gemini`, `openai`, `deepseek`) | `auto` |
+| `--sttProvider <name>` | STT provider override | defaults to `--provider` or auto |
+| `--chatProvider <name>` | Chat provider override | defaults to `--provider` or best available |
 | `--safeMode` | Soften profanity | `false` |
 | `--diarization` | Enable speaker detection | `false` |
-| `--darijaStrict <bool>` | Strict Darija enforcement | `true` |
+| `--style <style>` | Cleaning style: `mixed`, `darija`, `msa` | `darija` |
+| `--script <script>` | Script: `arabic` or `latin` (Arabizi) | `arabic` |
+| `--darijaStrict <bool>` | Strict Darija enforcement | `true` only when `style=darija` |
 | `--noClean` | Skip transcript cleaning | `false` |
 | `--noCaption` | Skip caption generation | `false` |
 | `--chunkMinutes <n>` | Split audio (for long videos) | `0` (off) |
@@ -156,22 +169,40 @@ Then open http://localhost:3000 in your browser.
 
 Features:
 - 📤 Drag & drop video upload
-- ⚙️ Configure options visually
+- ⚙️ Configure providers, style, script, and language visually
+- 🔁 Override STT vs Chat providers separately
 - 📊 Real-time progress tracking
 - ⬇️ Download results as ZIP
 - 🔍 Fetch provider models via the UI
 
 ### Provider Auto-Detection Priority
 
-When you leave `--provider` unset (or choose **auto** in the UI), the CLI picks the first available API key in this order:
+When you leave `--provider` unset (or choose **auto** in the UI), the CLI picks the first available **STT-capable** provider in this order:
 
-`GLADIA` → `AssemblyAI` → `Groq` → `OpenRouter` → `Gemini` → `OpenAI` → `DeepSeek`
+`GLADIA` → `AssemblyAI` → `Groq` → `OpenAI` → `Gemini` → `OpenRouter` (only if the selected model accepts audio)
+
+> DeepSeek is chat-only and is never auto-selected for STT.
 
 ## 🎯 Example Commands
 
 ### OpenAI with explicit models
 ```bash
 node index.js --input "./video.mp4" --provider openai --sttModel whisper-1 --chatModel gpt-4o-mini --format srt
+```
+
+### Split STT + Chat providers (Gladia STT + Groq Chat)
+```bash
+node index.js --input "./video.mp4" --sttProvider gladia --chatProvider groq --style mixed
+```
+
+### Mixed style with Arabizi output
+```bash
+node index.js --input "./video.mp4" --style mixed --script latin
+```
+
+### MSA cleanup (keep French/English words)
+```bash
+node index.js --input "./video.mp4" --style msa --darijaStrict false
 ```
 
 ### List models for a provider
@@ -209,6 +240,23 @@ node index.js -i "./video.mp4" --format srt --lang ar
 node index.js -i "./video.mp4" --chatModel gpt-4o
 ```
 
+## 🧬 Style + Script Behavior
+
+### Styles
+- **mixed**: preserves Darija/French/English code-switching exactly as spoken (no translation).
+- **darija**: enforces Moroccan Darija while keeping French/English words untouched.
+- **msa**: normalizes to Modern Standard Arabic (MSA) without changing non-Arabic words.
+
+### Scripts
+- **arabic**: keep Arabic in Arabic script; keep French/English in Latin.
+- **latin**: transliterate Arabic Darija into Moroccan Arabizi (Latin + digits 2/3/7/9) and keep French/English as-is.
+
+> Script selection affects cleaned transcripts, cleaned subtitles, and generated captions (raw transcripts stay untouched).
+
+### STT Language Control
+- **auto**: do not force language detection (omits the language parameter).
+- **ar**: force Arabic language for STT.
+
 ## 📄 Output Examples
 
 ### subtitles.srt
@@ -228,7 +276,7 @@ node index.js -i "./video.mp4" --chatModel gpt-4o
 شنو رايكم؟ كتبو لينا فالكومونت 👇
 ```
 
-### caption_variations.json
+### caption_variations_darija.json
 ```json
 {
   "neutral": "اليوم غادي نهضرو على موضوع مهم، تابعونا 📝",
@@ -237,9 +285,9 @@ node index.js -i "./video.mp4" --chatModel gpt-4o
 }
 ```
 
-## 🧪 Darija Strict Test Script
+## 🧪 Darija / Mixed Smoke Test Script
 
-Run a tiny offline check to verify timestamps remain untouched and forbidden MSA words are removed:
+Run a tiny offline check to verify timestamps remain untouched, mixed style preserves French/English tokens, and Darija strict removes MSA blockers:
 
 ```bash
 node scripts/test-darija-strict.js
@@ -249,24 +297,32 @@ node scripts/test-darija-strict.js
 
 ### Environment Variables
 
-Create a `.env` file:
+Create a `.env` file (see `.env.example`):
 
 ```env
-# Required
-OPENAI_API_KEY=sk-your-api-key-here
+# Required (at least one STT-capable key)
+GLADIA_API_KEY=
+ASSEMBLYAI_API_KEY=
+GROQ_API_KEY=
+OPENAI_API_KEY=
+GEMINI_API_KEY=
+OPENROUTER_API_KEY=
+
+# Optional chat-only provider
+DEEPSEEK_API_KEY=
 
 # Optional
 PORT=3000  # Web UI port
 ```
 
-## 🧠 How to choose OpenAI models
+## 🧠 How to choose models
 
-OpenAI models are selected **per request**. You can list models at any time with:
+Models are selected **per request**. You can list models at any time with:
 
 - CLI: `node index.js --provider openai --listModels`
-- API: `GET https://api.openai.com/v1/models`
+- API: `GET /api/models?provider=openai` (UI backend)
 
-Use `--sttModel` to choose the transcription model (default: `whisper-1`) and `--chatModel`/`--model` to choose the chat model (default: `gpt-4o-mini`). For UI users, click **“جلب الموديلات”** to populate the model dropdowns.
+Use `--sttModel` to choose the transcription model and `--chatModel`/`--model` to choose the chat model. For UI users, click **“جلب الموديلات”** to populate the model dropdowns.
 
 ### Supported Video Formats
 
@@ -305,8 +361,8 @@ npm run build
                                               │
                                               ▼
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Caption   │ ◄── │   GPT-4o    │ ◄── │   Whisper   │
-│  Variations │     │   Clean     │     │  Transcribe │
+│   Caption   │ ◄── │   LLM Chat  │ ◄── │   STT API   │
+│  Variations │     │   Clean     │     │ Transcribe │
 └─────────────┘     └─────────────┘     └─────────────┘
         │                 │                   │
         ▼                 ▼                   ▼
@@ -318,12 +374,12 @@ npm run build
 
 1. **Input Validation** - Check file exists, format supported, readable
 2. **Audio Extraction** - FFmpeg extracts mono 16kHz WAV
-3. **Transcription** - Whisper API generates SRT with timestamps
+3. **Transcription** - STT provider generates SRT with timestamps
 4. **SRT Optimization** - Split long lines, merge short blocks
 5. **Darija Strict Cleanup** - Two-pass Darija enforcement (no MSA drift)
 6. **VTT Conversion** - Convert SRT to VTT format
-7. **Transcript Cleaning** - GPT removes fillers, fixes spelling
-8. **Caption Generation** - GPT creates social-ready captions
+7. **Transcript Cleaning** - Chat provider removes fillers, fixes spelling
+8. **Caption Generation** - Chat provider creates social-ready captions
 
 ## 🔒 Privacy & Security
 
@@ -340,10 +396,10 @@ Make sure FFmpeg is installed and in your PATH:
 ffmpeg -version
 ```
 
-### "OPENAI_API_KEY not found"
-Create a `.env` file with your API key:
+### "No API key configured"
+Create a `.env` file with one of the supported provider keys:
 ```bash
-echo "OPENAI_API_KEY=sk-..." > .env
+echo "GROQ_API_KEY=gsk-..." > .env
 ```
 
 ### "File too large"
@@ -361,8 +417,8 @@ MIT License - Feel free to use in your projects!
 
 ## 🙏 Credits
 
-- [OpenAI Whisper](https://openai.com/research/whisper) - Speech recognition
-- [OpenAI GPT](https://openai.com/gpt-4) - Text processing
+- STT Providers: Gladia, AssemblyAI, Groq, OpenAI, Gemini, OpenRouter
+- LLM Providers: Groq, OpenAI, Gemini, OpenRouter, DeepSeek
 - [FFmpeg](https://ffmpeg.org/) - Audio extraction
 - Built with ❤️ by **OKTOPIA** for the Moroccan creator community
 
